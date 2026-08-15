@@ -1,0 +1,553 @@
+# GREENMATE ADMIN DASHBOARD — DEVELOPMENT GUIDELINES
+
+## I. TỔNG QUAN DỰ ÁN
+
+**Stack:** Next.js 16.2.9 · React 19.2.4 · Tailwind CSS v4 · JavaScript (ES6+, không TypeScript)
+
+**Mục đích:** Dashboard quản trị nội bộ GreenMate — sản phẩm, đơn hàng, khách hàng, voucher, banner, collection, tồn kho, RBAC.
+
+**Import chuẩn:**
+```js
+import { cn } from '@/lib/shared/utils';
+import { apiGet, apiPost } from '@/lib/api/client';
+import { PageHeader } from '@/components/admin';
+import { useListUrlFilters } from '@/hooks/useListUrlFilters';
+```
+
+**Đọc tài liệu Next.js 16 trước khi dùng tính năng mới:**
+```
+node_modules/next/dist/docs/
+```
+
+**Nguyên tắc khi làm tính năng mới:**
+1. Tìm module tương đương đã có (voucher / banner / collection) → copy pattern, đổi data.
+2. Không tạo UI/list/form riêng nếu đã có component dùng chung (`components/admin/`, `lib/shared/listTableStyles.js`).
+3. RBAC 3 lớp + `grantAccess` tipjs trước khi coi là xong.
+
+---
+
+## II. CẤU TRÚC THƯ MỤC (HIỆN TẠI)
+
+```
+src/
+├── app/
+│   ├── (auth)/login/
+│   ├── (dashboard)/
+│   │   ├── layout.js              — RBAC guard + DashboardShell
+│   │   ├── dashboard/
+│   │   ├── products/              — list, new, [id], [id]/edit
+│   │   ├── vouchers/              — tương tự
+│   │   ├── banners/               — tương tự
+│   │   ├── collections/           — tương tự
+│   │   ├── inventory/             — nguyên liệu / tồn kho
+│   │   ├── customers/, staff/, rbac/
+│   │   └── orders/, reviews/…     — chưa implement (nav có thể ẩn sau)
+│   ├── api/auth/session-clear/
+│   ├── globals.css, layout.js, not-found.js, error.js
+│   └── proxy.js                   — KHÔNG đặt trong app/ — xem src/proxy.js
+│
+├── components/
+│   ├── ui/                        — shadcn primitives (.jsx) — KHÔNG import trực tiếp từ page
+│   ├── admin/                     — Design system admin (PageHeader, ListFilterPanel, AdminButton…)
+│   ├── layout/                    — Sidebar, TopHeader, DashboardShell, MobileBottomNav
+│   ├── common/                    — ImageUploader, OptimizedImage, ListPagination, MediaLibraryModal…
+│   ├── products/
+│   │   ├── list/                  — ProductListTable, ProductFilterBar, ProductListCard
+│   │   ├── form/                  — ProductForm, SkuMatrix, VariationEditor
+│   │   ├── preview/               — ProductPreviewView, ProductPreviewWorkspace
+│   │   └── shared/                — ProductStatusBadge, ProductPriceBadge…
+│   ├── vouchers/                  — VoucherListTable, VoucherForm, VoucherFilterBar…
+│   ├── banners/                   — BannerListTable, BannerForm…
+│   ├── collections/               — CollectionListTable, CollectionForm…
+│   ├── inventory/, customers/, staff/, rbac/, auth/
+│
+├── lib/
+│   ├── api/                       — client.js + entity API (product, banner, collection, discount…)
+│   ├── actions/                   — Server Actions + requirePermission()
+│   ├── auth/                      — assertPermission, verifyAdminSession, refreshAccessToken…
+│   ├── shared/                    — utils, env, toast, image, listPagination, listTableStyles…
+│   ├── rbac/                      — navConfig, permissions, routePermissions, getCachedPermissions…
+│   ├── products/                  — productSchema, productForm, productDisplay…
+│   ├── vouchers/                  — voucherSchema, voucherDisplay…
+│   ├── banners/                   — bannerSchema, bannerDisplay, bannerImageSpecs…
+│   ├── collections/               — collectionSchema, collectionDisplay…
+│   ├── ingredients/               — ingredientSchema, ingredientDisplay…
+│   └── staff/                     — staffSchema, staffStatus…
+│
+├── hooks/
+│   ├── useDebounce.js             — useDebounce + useDebouncedCallback
+│   ├── useListUrlFilters.js       — filter bar: search draft + URL searchParams
+│   ├── useStaffStatusUpdate.js
+│   └── README.js
+│
+├── stores/
+│   └── README.js                  — Zustand chỉ khi có client state global thật
+│
+└── proxy.js                       — Next.js 16 route guard (thay middleware.js)
+```
+
+**Quy tắc import `lib/`:**
+- Shared: `@/lib/shared/utils`, `@/lib/shared/listPagination`, `@/lib/shared/listTableStyles`
+- RBAC: `@/lib/rbac/navConfig`, `@/lib/rbac/permissions`, `@/lib/rbac/resourceCapabilities`
+- Domain: `@/lib/banners/bannerSchema`, `@/lib/products/productForm`, `@/lib/vouchers/voucherDisplay`
+- **KHÔNG** thêm file flat ở `lib/` root (trừ `api/`, `actions/`, `auth/`).
+
+**Quy tắc import component:**
+- Page/feature → `@/components/admin` (không `@/components/ui/button` trực tiếp).
+- List module → `*ListTable`, `*FilterBar`, `*ListCard`, `*RowActions`, `*SummaryCard` trong folder domain.
+
+---
+
+## III. TRẠNG THÁI MODULE
+
+### 3.1 Auth
+- [x] Login `/login`, `loginAction`, cookie httpOnly + refresh
+- [x] `proxy.js` — cookie + `verifyAdminSession()` qua API tipjs
+- [x] Rate limit login — tipjs `loginRateLimit.js` (10 lần thất bại / 15 phút / IP)
+- [x] Logout, session-clear route
+- [ ] `.env.example` đầy đủ
+- [ ] Đồng bộ cookie TTL vs JWT expiry (access 2d / refresh 7d)
+
+### 3.2 Đã có (production pattern)
+- [x] **Sản phẩm** — list/filter/preview/form/SKU matrix
+- [x] **Voucher** — list/filter/form/scope picker, lifecycle
+- [x] **Banner Hero** — list/filter/form, ảnh desktop 3840×1576 / mobile 480×701
+- [x] **Collection** — list/filter/form, active/inactive
+- [x] **Tồn kho (ingredient)** — list/filter/stock/edit
+- [x] **Khách hàng** — list/filter/detail
+- [x] **Nhân viên** — list/filter/detail/signup
+- [x] **RBAC** — roles, grants, resources
+
+### 3.3 Chưa có / backlog
+- [ ] Dashboard overview (stats, chart, đơn gần nhất)
+- [ ] Đơn hàng (`order`)
+- [ ] Danh mục category tree
+- [ ] Đánh giá (`comment`)
+- [ ] Ẩn nav tới route chưa implement để tránh 404
+
+---
+
+## IV. DESIGN SYSTEM — ADMIN UI
+
+### Màu sắc
+**Sidebar:** `#6B4E3D` (brand-primary, nâu đất) · **Content:** `#F8F9FA` (brand-gray) · **Card:** white · **Accent:** `#D4A373`
+
+Dùng class Tailwind `brand-*` và token trong `globals.css` — không hardcode hex trong component mới.
+
+### Typography
+- Heading trang: `text-xl font-bold text-brand-dark`
+- Label cột: `text-xs font-semibold text-gray-500 uppercase tracking-wide`
+- Giá trị: `text-sm text-brand-dark`
+- Caption: `text-xs text-gray-400`
+
+### Trạng thái đơn hàng (dự kiến)
+```
+pending → amber | confirmed → blue | shipping → purple | done → green | cancelled → red
+```
+
+---
+
+## V. AUTH & PROXY (Next.js 16)
+
+> File bảo vệ route: **`src/proxy.js`**, export **`proxy`** (không phải `middleware`).
+
+**Hiện tại (đúng chuẩn dự án):**
+- Check `admin_token` + `admin_client_id`
+- `verifyAdminSession(token, clientId)` → `GET /auth/me/permissions` tipjs (JWT verify phía backend)
+- Forward `x-user-client-id`, `x-pathname` cho layout RBAC
+- Token invalid → xóa cookie, redirect `/login?session=expired`
+
+**KHÔNG** chỉ check cookie tồn tại. **KHÔNG** bypass RBAC theo `role_type === 'ADMIN'`.
+
+Layout đọc `x-pathname` từ header (Server Component) — không dùng `usePathname()` trong layout guard.
+
+---
+
+## VI. API LAYER
+
+**`lib/api/client.js`** — mọi request admin:
+- Server-only: `API_KEY` (`x-api-key`), token (`authorization`), `x-client-id`
+- 401 → refresh token một lần → retry; vẫn 401 → redirect login
+- 403 account blocked → `session-clear` route
+- **Chỉ gọi từ Server Components / Server Actions** — client dùng Server Actions
+
+**Pattern entity** (`lib/api/banner.js`):
+```js
+export function getBanners(params) {
+  const qs = new URLSearchParams(params);
+  return apiGet(`/banner?${qs}`, { revalidate: 0 });
+}
+export function getBannerById(id) { return apiGet(`/banner/${id}`, { revalidate: 0 }); }
+```
+
+List admin dùng `revalidate: 0` (data thay đổi thường xuyên). Sau mutation → `revalidatePath` / `revalidateTag` trong Server Action.
+
+---
+
+## VII. CRUD PATTERN — CHUẨN MỌI MODULE
+
+### A. List page (Server Component)
+```jsx
+// app/(dashboard)/banners/page.js
+export const dynamic = 'force-dynamic';
+
+export default async function BannersPage({ searchParams }) {
+  const params = await searchParams;
+  const permissions = await getCachedMyPermissions();
+  const caps = getResourceCapabilities('banner', permissions.grants);
+
+  const [data, statusStats] = await Promise.all([
+    getBanners({ page, limit, ...filters }),
+    getBannerStats(),
+  ]);
+
+  return (
+    <>
+      <PageHeader title="Banner Hero">
+        {caps.canCreate && <PageHeaderAction href="/banners/new">Thêm slide</PageHeaderAction>}
+      </PageHeader>
+      <BannerFilterBar statusStats={statusStats} />
+      <BannerListTable items={data.items} canUpdate={caps.canUpdate} canDelete={caps.canDelete} />
+    </>
+  );
+}
+```
+
+Mỗi route quan trọng có `loading.js` + `error.js`.
+
+### B. Server Action (mutation)
+```js
+'use server';
+import { requirePermission } from '@/lib/auth/assertPermission';
+import { revalidatePath } from 'next/cache';
+
+export async function createBannerAction(prevState, formData) {
+  const denied = await requirePermission('create:any', 'banner');
+  if (denied) return denied;
+
+  const parsed = bannerCreateSchema.safeParse(/* … */);
+  if (!parsed.success) return { error: parsed.error.flatten().fieldErrors };
+
+  try {
+    const banner = await createBanner(parsed.data);
+    revalidatePath('/banners');
+    redirect(`/banners/${banner._id}`);
+  } catch {
+    return { error: 'Tạo banner thất bại' }; // không expose lỗi backend
+  }
+}
+```
+
+### C. Form (client)
+- `react-hook-form` + `zod` + `useActionState`
+- Layout form: `FormCard`, `FormStickyActions` từ `@/components/admin`
+- Upload ảnh: `ImageUploader` + validate size (`lib/shared/imageDimensions.js`)
+
+---
+
+## VIII. LIST UI PATTERN (THAY DataTable)
+
+> Dự án **không** dùng `DataTable` generic. Mỗi module có bộ list riêng đồng bộ voucher/banner/collection.
+
+### File chuẩn mỗi module list
+| File | Vai trò |
+|------|---------|
+| `*FilterBar.js` | `ListFilterPanel` + `useListUrlFilters` + status tabs |
+| `*ListTable.js` | Desktop table + mobile `*ListCard` |
+| `*ListCard.js` | Card mobile (trước đây *ListRow) |
+| `*RowActions.js` | 2 hàng khi `compact`: Kích hoạt/Tắt \| Sửa+Xóa |
+| `*SummaryCard.js` | Tóm tắt mobile (optional) |
+| `*StatusBadge.js` | Badge trạng thái |
+| `*ListTableStyles.js` | `*_TABLE_COL` presets — import từ `lib/shared/listTableStyles` |
+
+### CSS bảng chung
+```js
+// lib/shared/listTableStyles.js
+export const ADMIN_LIST_TABLE_CLASS = 'gm-admin-list-table'; // min-width + divider
+export const LIST_TABLE_COL_PRESETS = { pill, actions, name, sort, link, … };
+```
+
+Module chỉ khai báo cột riêng trong `bannerListTableStyles.js` v.v.
+
+### Filter bar — URL state
+```js
+// Dùng hook — KHÔNG duplicate buildHref trong mỗi filter bar
+const { searchDraft, setSearchDraft, applySearch, replaceParams, clearAllFilters, isPending } =
+  useListUrlFilters();
+```
+
+- List filter: nút **«Tìm»** / Enter → `applySearch()` (không auto-debounce URL khi gõ)
+- Search inline trong form phức tạp (VD scope picker): `useDebouncedCallback(fn, 400)`
+
+---
+
+## IX. PERFORMANCE — ADMIN
+
+- List page: `Promise.all` cho list + stats (tránh waterfall)
+- `export const dynamic = 'force-dynamic'` trên trang list có filter URL
+- Chart/editor nặng: `dynamic(() => import(...), { ssr: false })`
+- Bảng > 50 rows: cân nhắc `@tanstack/react-virtual`
+- Mutation: Server Actions — không fetch API từ client
+- Quick toggle (publish/active): `useOptimistic` + `useTransition`
+- Ảnh upload preview: `URL.createObjectURL` + `revokeObjectURL`
+- Bundle: `ANALYZE=true npm run build` trước deploy
+
+**Cache (`use cache`):** chưa bật toàn cục — khi bật, chỉ cache read ít đổi (stats dashboard, danh mục tĩnh); list có filter **không** cache.
+
+---
+
+## X. THƯ VIỆN
+
+**Đã cài:** clsx, tailwind-merge, react-hook-form, zod, sonner (toast), shadcn/ui, lucide-react
+
+**Cài khi cần:**
+```bash
+npm install zustand              # stores/ — chỉ khi có client state global
+npm install date-fns             # format ngày
+npm install recharts             # dashboard chart (dynamic import)
+npm install @tanstack/react-virtual
+```
+
+**Toast:** `sonner` qua `AppToaster` — không react-hot-toast.
+
+---
+
+## XI. CHECKLIST TRƯỚC KHI BẮT ĐẦU MODULE MỚI
+
+1. **tipjs** — model, routes, `grantAccess`, Resource `src_name`
+2. **`lib/api/<entity>.js`** + **`lib/<domain>/`** (schema, display, lifecycle)
+3. **`lib/actions/<entity>.js`** — mọi mutation có `requirePermission()`
+4. **Pages** — `page.js`, `loading.js`, `error.js`, `new`, `[id]`, `[id]/edit`
+5. **Components** — copy pattern voucher/banner (VIII)
+6. **`navConfig.js`** — `permission.resource` = `src_name`
+7. **`routePermissions.js`** — route `/new`, `/edit`
+8. **Layout caps** — `getResourceCapabilities` → nút Thêm/Sửa/Xóa + TopHeader props
+9. **Form** — zod schema + `useActionState`
+10. **RBAC UI** — không gate nút chỉ theo `pathname`
+11. **JS only** — không `.ts` / `.tsx` (trừ `components/ui/*.jsx` shadcn)
+12. **Tiếng Việt** — label UI
+
+---
+
+## XII. DATA MODELS (tóm tắt)
+
+### Product — `lib/products/productSchema.js`
+Variations, SKUs, `product_type` (dryseed|milkseed|combo), publish/draft, badge, voucher attach.
+
+### Banner — `lib/banners/bannerSchema.js`
+`placement`, `sort_order`, `status` (active|inactive), `image_desktop`, `image_mobile`, link CTA.
+
+### Collection — `lib/collections/collectionSchema.js`
+`slug`, `products[]`, `sort_order`, `status` (active|inactive).
+
+### Voucher — `lib/vouchers/voucherSchema.js`
+Code, %, scope (products/skus), lifecycle (active|scheduled|expired|inactive).
+
+### Order (dự kiến)
+`order_status`: pending|confirmed|shipping|done|cancelled
+
+---
+
+## XIII. QUY TẮC CODE
+
+- Không TypeScript — `.js` / `.jsx`
+- Server Components tối đa — `'use client'` khi cần state/event/browser API
+- Mỗi file ≤ ~200 dòng — tách component nếu dài
+- Không `console.log` production
+- Không inline style — Tailwind + `cn()`
+- JSDoc cho hook, API function, component phức tạp
+
+---
+
+## XIV. SHADCN/UI
+
+- Primitives: `components/ui/*.jsx` — **không sửa trực tiếp** (bị overwrite khi update)
+- Wrapper: `components/admin/` hoặc `components/common/`
+- Cài thêm: `npx shadcn@latest add <component> -y`
+- Form: ưu tiên `AdminField`, `AdminInput` từ admin — không fork style riêng
+
+---
+
+## XV. BẢO MẬT
+
+### A. Proxy & session
+- `verifyAdminSession` — xác thực qua tipjs (không decode JWT local trừ khi có lý do)
+- Refresh token: header `refreshtoken` (lowercase) — `lib/auth/refreshAccessToken.js`
+
+### A.1 Rate limit đăng nhập (tipjs — đã có)
+- `POST /auth/admin/login` và `/auth/user/login` — `src/helpers/loginRateLimit.js`
+- **10 lần thất bại / 15 phút / IP** (cấu hình: `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_SEC`)
+- Redis `INCR` khi có `REDIS_URL`; fallback in-memory nếu Redis lỗi
+- Chỉ đếm lần **thất bại**; đăng nhập thành công → xóa đếm
+- Response **429** + message tiếng Việt — admin `parseAuthResponse` hiển thị toast
+
+### B. Server Actions
+- **Bắt buộc** `requirePermission(action, resource)` đầu mọi mutation
+- Validate Zod — không tin `formData` raw
+- Trả `{ error }` — không throw ra client; không expose stack/message backend
+
+### C. Biến môi trường
+```
+NEXT_PUBLIC_API_URL=   # OK public
+API_KEY=               # server-only — bắt buộc
+JWT_SECRET=            # server-only (nếu verify local)
+```
+`.env.local` không commit. Tạo `.env.example`.
+
+### D. XSS
+Không `dangerouslySetInnerHTML` với data user. Rich text → sanitize (DOMPurify).
+
+### E. Upload
+`lib/actions/upload.js` — validate MIME + max size server-side. Banner: `bannerImageSpecs.js` + `requiredSize` trên `ImageUploader`.
+
+### F. Security headers
+**Đã có** trong `next.config.mjs`: CSP, X-Frame-Options, HSTS (prod), nosniff, Referrer-Policy.
+
+### G. Checklist deploy
+- [x] Rate limit login trên tipjs (`/auth/admin/login`, `/auth/user/login`)
+- [ ] Mọi Server Action mutation có `requirePermission()`
+- [ ] tipjs `grantAccess` khớp module mới
+- [ ] Không secret trong `NEXT_PUBLIC_*`
+- [ ] Upload validate type/size
+- [ ] `.env.example` có đủ keys
+
+---
+
+## XVI. RBAC — 3 LỚP (BẮT BUỘC)
+
+Backend tipjs (`grantAccess`) là lớp bảo mật thật. Admin có 3 lớp UX:
+
+| Lớp | File |
+|-----|------|
+| 1 — Menu + Route | `lib/rbac/navConfig.js`, `routePermissions.js`, `(dashboard)/layout.js` |
+| 2 — Nút / UI | `resourceCapabilities.js`, props `canCreate`/`canUpdate`/`canDelete` |
+| 3 — Mutation | `lib/auth/assertPermission.js` → `requirePermission()` |
+
+### `src_name` (key RBAC) — KHÔNG dùng `src_slug`
+
+| src_name | Module |
+|----------|--------|
+| `product` | Sản phẩm |
+| `discount` | Voucher (nav `/vouchers`) |
+| `banner` | Banner Hero |
+| `collection` | Bộ sưu tập |
+| `ingredient` | Tồn kho (nav `/inventory`) |
+| `customer` | Khách hàng |
+| `staff` | Nhân viên |
+| `rbac` | Phân quyền |
+| `order` | Đơn hàng (chưa FE) |
+| `comment` | Đánh giá (chưa FE) |
+
+**Lỗi đã gặp — tránh:**
+- Nhầm `user` vs `customer` / `staff`
+- Gate nút Thêm chỉ bằng `pathname.startsWith('/products')`
+- `update:any` không tự cấp `read:any`
+
+### Format action
+| Frontend | Backend tipjs |
+|----------|---------------|
+| `read:any`, `create:any` | `readAny`, `createAny` |
+
+Chuẩn hóa: `lib/rbac/rbacConstants.js` → `normalizeRbacAction()`
+
+### Permissions fetch
+`getCachedMyPermissions()` — `revalidate: 0`. Fail → `{ grants: [] }` (fail-safe: chỉ thấy Tổng quan).
+
+### Checklist RBAC module mới
+- [ ] `navConfig` + `routePermissions` + layout guard
+- [ ] Page truyền caps xuống table/row actions
+- [ ] TopHeader nhận caps từ layout (không chỉ pathname)
+- [ ] Server Actions + tipjs `grantAccess`
+- [ ] Resource seed trong RBAC UI (`src_name` khớp)
+
+---
+
+## XVII. COOKBOOK — THÊM MODULE MỚI (copy banner/collection)
+
+```
+1. tipjs: routes /api/v1/<entity>, grantAccess, Resource src_name
+2. lib/api/<entity>.js
+3. lib/<domain>/<entity>Schema.js, <entity>Display.js, <entity>LifecycleUi.js (nếu cần)
+4. lib/actions/<entity>.js
+5. components/<domain>/
+   - <Entity>FilterBar.js      → useListUrlFilters
+   - <Entity>ListTable.js      → ADMIN_LIST_TABLE_CLASS
+   - <Entity>ListCard.js
+   - <Entity>RowActions.js
+   - <Entity>Form.js
+   - <Entity>DetailView.js
+   - <entity>ListTableStyles.js
+6. app/(dashboard)/<route>/page.js, new/, [id]/, [id]/edit/, loading.js, error.js
+7. navConfig + routePermissions + NavIcons
+8. Test RBAC: user read-only không thấy/không gọi được mutation
+```
+
+**Tham chiếu chuẩn:** `banners/`, `collections/`, `vouchers/`
+
+---
+
+## XVIII. ANTI-PATTERNS
+
+```js
+// ✗ Import ui/* trực tiếp từ page
+import { Button } from '@/components/ui/button';
+
+// ✗ Flat lib mới ở root
+import x from '@/lib/bannerUtils';
+
+// ✗ Mutation không check quyền
+export async function deleteX(id) { await apiDelete(`/x/${id}`); }
+
+// ✗ Filter bar copy-paste buildHref — dùng useListUrlFilters
+
+// ✗ List table style inline lặp lại — dùng listTableStyles + module *ListTableStyles
+
+// ✗ Bypass ADMIN
+if (role_type === 'ADMIN') return true;
+
+// ✗ Dynamic Tailwind class (JIT không scan)
+const cls = `min-w-[${width}px]`;
+```
+
+---
+
+## XX. VOUCHER — ADMIN & HIỂN THỊ (ĐỒNG BỘ TIPJS §XV)
+
+> Thuật toán chọn voucher: **tipjs** `helpers/voucherResolve.js` + `.cursorrules` §XV.
+
+### Form tạo/sửa voucher
+
+- Picker SP/SKU gọi `getNarrowVoucherProductLocksAction` — **khóa** SP đã có voucher hẹp (`specific` / `specific_sku`).
+- Mỗi SP: tối đa 1 toàn shop + 1 hẹp — không chọn SP đã có voucher hẹp khác (tipjs `voucherScopeConflict.js`).
+- Khi sửa voucher hiện tại: truyền `excludeDiscountId` để SP/SKU của voucher đó vẫn chọn được.
+
+### Form sản phẩm (`product_voucher`)
+
+- **Không có voucher đang tính giá:** admin chọn nhãn marketing từ voucher **toàn shop** active (`getEligibleProductVouchers`).
+- **Có `has_voucher_discount` + `active_voucher`:** nhãn marketing **khóa** theo voucher đang áp dụng (mọi scope SKU/product/all). Picker chỉ 1 option; `sanitizeProductVoucherForSave` ép đồng bộ khi lưu — **không** cho gắn mã toàn shop khác khi SKU/product đang thắng.
+- Pre-fill form: `resolveProductFormVoucherCode` ưu tiên `active_voucher` trước `product_voucher` DB.
+- Voucher scope SKU/product: quản lý tại module **Voucher**, không gắn thủ công trên form SP.
+
+### Preview / danh sách
+
+- `active_voucher` = voucher hệ thống **đang tính vào giá** (từ API sau enrich).
+- `resolvePreviewVoucherStripFromApi` / `pickAppliedVoucherCodeFromApi` — strip chỉ khi `has_voucher_discount`.
+- Nhãn marketing list (`promoLabel`) chỉ khi **trùng mã** `active_voucher`, không hiện mã khác khi không áp dụng.
+
+### Checklist
+
+- [ ] Không assume `product_voucher` = voucher đang chạy.
+- [ ] Preview giá/voucher dùng field API đã enrich, không `.find()` voucher local.
+- [ ] Logic mới → cập nhật section này hoặc tipjs §XV.
+
+---
+
+## XIX. BACKLOG KỸ THUẬT
+
+- [x] Rate limit login tipjs (`loginRateLimit.js`)
+- [ ] `.env.example`
+- [ ] Ẩn nav route chưa có page
+- [ ] `grantAccess` upload API tipjs (nếu chưa đủ)
+- [ ] Dashboard `use cache` cho stats (khi bật cacheComponents)
+- [ ] Cookie TTL vs JWT — refresh ổn định hơn
+- [ ] `GREENMATE_SHOP_OWNER_ID` enforce production

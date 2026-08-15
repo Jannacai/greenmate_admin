@@ -1,0 +1,40 @@
+---
+description: Definition of Done cho greenmate_admin — chuẩn production thương mại, không code tạm dev/test
+alwaysApply: true
+---
+
+# Definition of Done — greenmate_admin (production-first)
+
+> Mọi module CRUD coi là "xong" chỉ khi qua hết checklist này. Mục tiêu: dashboard vận hành
+> thương mại thật, RBAC là lớp bảo mật thực → không gate quyền chỉ bằng UI/pathname.
+
+## RBAC 3 lớp (bắt buộc)
+
+- [ ] Lớp 1 — `navConfig.js` + `routePermissions.js` + `(dashboard)/layout.js` guard (đọc `x-pathname`, không `usePathname()`)
+- [ ] Lớp 2 — `getResourceCapabilities(src_name, grants)` → props `canCreate/canUpdate/canDelete` xuống table/row/TopHeader
+- [ ] Lớp 3 — MỌI Server Action mutation bắt đầu bằng `requirePermission(action, resource)`
+- [ ] `src_name` khớp tipjs `grantAccess` + Resource UI (KHÔNG nhầm `user` vs `customer`/`staff`)
+
+## CRUD pattern (copy banner/collection/voucher)
+
+- [ ] Page list: `export const dynamic = 'force-dynamic'`, `Promise.all` cho list + stats (tránh waterfall)
+- [ ] Bộ list chuẩn: `*FilterBar` (`useListUrlFilters`) · `*ListTable`/`*ListCard` · `*RowActions` · `*StatusBadge`
+- [ ] Dùng `ADMIN_LIST_TABLE_CLASS` + `listTableStyles` — KHÔNG inline style bảng lặp lại
+- [ ] `page.js` + `loading.js` + `error.js` cho route quan trọng; import qua `@/components/admin` (không `ui/*` trực tiếp)
+
+## Data, form & bảo mật
+
+- [ ] `lib/api/*` chỉ gọi từ Server Component/Action; list admin `revalidate: 0`, invalidate sau mutation
+- [ ] Form: `react-hook-form` + `zod` + `useActionState`; Server Action trả `{ error }`, KHÔNG throw/leak stack backend
+- [ ] Upload: validate MIME + size server-side (`imageDimensions`, `bannerImageSpecs`)
+- [ ] Không secret trong `NEXT_PUBLIC_*`; `.env.example` cập nhật
+
+## Quy tắc code
+
+- [ ] JS/JSX only (trừ `ui/*.jsx` shadcn); không `console.log` production; file ≤ ~200 dòng
+- [ ] Voucher/giá: dùng field API đã enrich, không `.find()` voucher local (§XX)
+- [ ] Chạy được cả local Docker và VPS chỉ khác env
+
+Tham chiếu chuẩn: `banners/`, `collections/`, `vouchers/`. Chi tiết: `.cursorrules`.
+
+> **Đích đến / roadmap:** `PRODUCTION-BLUEPRINT.md` (repo này) — đồng bộ với master `tipjs/PRODUCTION-BLUEPRINT.md`. Rà soát = đối chiếu blueprint dạng PASS/FAIL, không mở hạng mục ngoài file.

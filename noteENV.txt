@@ -1,0 +1,43 @@
+# GreenMate Admin — copy thành `.env.local` và điền giá trị thật
+
+# Public — base URL tipjs (đã gồm /api/v1)
+NEXT_PUBLIC_API_URL=http://localhost:3055/api/v1
+
+# Server-only — BẮT BUỘC production (khớp tipjs API_KEY)
+API_KEY=
+
+# Storefront webhook — xóa cache greenmate_fe sau mutation catalog (product, banner, category, voucher)
+# FE_URL = port storefront (KHÔNG phải admin). Chạy song song: admin thường :3000, FE thường :3001
+FE_URL=http://localhost:3001
+
+# Secret khớp greenmate_fe REVALIDATE_SECRET — header x-revalidate-secret
+REVALIDATE_SECRET=
+
+# Shop owner (single-shop) — khớp tipjs GREENMATE_SHOP_OWNER_ID khi deploy production
+# GREENMATE_SHOP_OWNER_ID=
+
+
+
+
+
+
+--------------------------------------------------
+
+
+# GreenMate Admin — biến môi trường (file duy nhất, không commit git)
+#
+# Dev: API_KEY có thể để trống tạm (upload sẽ báo lỗi rõ)
+# Production: BẮT BUỘC cả hai dòng dưới — URL HTTPS + API_KEY khớp tipjs
+
+# API Base URL
+NEXT_PUBLIC_API_URL=http://localhost:3055/api/v1
+
+# x-api-key gửi kèm mọi request (SERVER ONLY — không prefix NEXT_PUBLIC_)
+API_KEY=123456789
+
+# Cloudinary cloud name — dùng cho lib/image.js (client-safe)
+NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=db15lvbrw
+# Storefront FE URL — để revalidate cache sau khi admin thay đổi banner/product
+FE_URL=http://localhost:3001
+# Shared secret với greenmate_fe — phải khớp giá trị REVALIDATE_SECRET bên FE
+REVALIDATE_SECRET=greenmate-revalidate-secret-dev
